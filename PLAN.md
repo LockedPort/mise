@@ -12,6 +12,12 @@ Jeden Montagmorgen schickt ein Telegram-Bot 10 Rezeptvorschläge (Mischung aus b
 
 **Stack:** n8n · Mealie · PostgreSQL · Telegram Bot API · NVIDIA Nemotron 3 Super (OpenRouter) · Caddy · Oracle Cloud VPS
 
+**Deployment:** Drei getrennte Compose-Stacks auf dem VPS —
+`~/proxy` (Caddy, besitzt 80/443), `~/n8n` (bestehende n8n-Instanz),
+`~/mise` (Postgres + Mealie). Verbunden über zwei externe Docker-Netze:
+`mise_proxy` (Caddy → Mealie) und `mise_data` (n8n → Postgres, `internal`).
+Die mise-Workflows laufen in der bestehenden n8n-Instanz.
+
 **🔐 Sicherheitsregel:** Repo ist öffentlich. Keine Zugangsdaten/Tokens/Passwörter in getrackten Dateien — alles in `.env` (per `.gitignore` ausgeschlossen), nur `.env.example` mit Platzhaltern wird versioniert. Vor jedem `git add`: `git status` prüfen.
 
 ---
@@ -22,10 +28,10 @@ Jeden Montagmorgen schickt ein Telegram-Bot 10 Rezeptvorschläge (Mischung aus b
 - [x] Reverse Proxy + TLS (Caddy, Auto-HTTPS)
 - [x] Firewall / OCI-Ingress (80/443 offen)
 - [x] VPS-Shape auf 2 OCPU / 12 GB hochgedreht
-- [ ] Subdomain `mealie.timkibele.com` (DNS-A-Record + Caddyfile-Block)
-- [ ] Postgres-Container mit persistentem Volume, nicht öffentlich exposed
-- [ ] Datenbanken `mealie` und `einkauf` angelegt
-- [ ] Postgres aus n8n im internen Docker-Netz erreichbar
+- [x] Subdomain `mealie.timkibele.com` (DNS-A-Record + Caddyfile-Block)
+- [x] Postgres-Container mit persistentem Volume, nicht öffentlich exposed
+- [x] Datenbanken `mealie` und `einkauf` angelegt
+- [x] Postgres aus n8n im internen Docker-Netz erreichbar
 - [x] SSH-Deploy-Key erzeugt und bei GitHub hinterlegt
 - [x] Öffentliches Repo `mise` angelegt
 - [x] `.gitignore` + `.env.example` vor erstem Commit erstellt
@@ -33,7 +39,7 @@ Jeden Montagmorgen schickt ein Telegram-Bot 10 Rezeptvorschläge (Mischung aus b
 
 ## Phase 1 – Mealie aufsetzen & Datenmodell definieren
 
-- [ ] Mealie deployen (Docker, hinter Caddy)
+- [x] Mealie deployen (Docker, hinter Caddy)
 - [ ] Admin-Account + beide Nutzer anlegen
 - [ ] API-Token erzeugen und testen
 - [ ] `extras`-Schema festlegen (rating_10, status, cook_count, last_cooked, season_tags, main_ingredient, portion_base)
