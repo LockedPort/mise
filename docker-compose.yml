@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: mise-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPER_PASSWORD}
+      POSTGRES_DB: postgres
+      MEALIE_DB_PASSWORD: ${MEALIE_DB_PASSWORD}
+      EINKAUF_DB_PASSWORD: ${EINKAUF_DB_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v3.22.0
+    container_name: mise-mealie
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ}
+      BASE_URL: https://${MEALIE_DOMAIN}
+      ALLOW_SIGNUP: "false"
+      MAX_WORKERS: 1
+      WEB_CONCURRENCY: 1
+      DB_ENGINE: postgres
+      POSTGRES_SERVER: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: mealie
+      POSTGRES_PASSWORD: ${MEALIE_DB_PASSWORD}
+      POSTGRES_DB: mealie
+    volumes:
+      - mealie-data:/app/data
+    networks:
+      - data
+      - proxy
+
+volumes:
+  postgres-data:
+  mealie-data:
+
+networks:
+  data:
+    name: mise_data
+    internal: true
+  proxy:
+    name: mise_proxy
