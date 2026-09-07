@@ -4,25 +4,8 @@ Automated weekly meal planning & grocery list generator — n8n + Mealie + Teleg
 
 > Checkboxen unten sind auf GitHub direkt anklickbar (im Repo, nicht nur in Issues). Ein Klick committet die Änderung automatisch.
 
-## API-Erkenntnisse (Phase 1)
-
-- Rezept anlegen: `POST /api/recipes` mit `{"name": "..."}` gibt nur den
-  Slug als String zurück, kein Objekt. Inhalte danach per `PATCH
-  /api/recipes/{slug}` nachziehen.
-- `recipeCategory` und `tags` brauchen **vollständige Objekte** mit
-  `id`, `name` und `slug`. Nur `{"name": ...}` → HTTP 422.
-  → IDs von Kategorien und Tags in n8n als feste Werte hinterlegen,
-  statt sie bei jedem Lauf aufzulösen.
-- Umlaute im Slug: `Frühstück` → `fruhstuck` (ue wird zu u).
-- `extras` akzeptiert beliebige Schlüssel ohne Validierung.
-- Zutaten aus `{"note": "250 g rote Linsen"}` bleiben unstrukturiert:
-  `quantity`, `unit` und `food` sind `null`. Für die Einkaufsliste
-  (Phase 6) ist eine Verknüpfung zu den Stammdaten nötig — Mealies
-  Parser-Endpunkt bei Phase 3 klären.
-- `recipeYield` ist Freitext; `recipeServings` und `recipeYieldQuantity`
-  sind separate numerische Felder, die nicht automatisch daraus
-  befüllt werden. Bei Phase 6 prüfen, ob `recipeServings` statt
-  `portion_base` genügt.
+Datenmodell, Organizer-IDs und SQL-Abfragen: siehe [SCHEMA.md](SCHEMA.md).
+Setup und Architektur: siehe [README.md](README.md).
 
 ## Überblick
 
@@ -45,6 +28,41 @@ Siehe README für die `docker network create`-Befehle.
 
 ---
 
+## API-Erkenntnisse (Phase 1)
+
+- Rezept anlegen: `POST /api/recipes` mit `{"name": "..."}` gibt nur den
+  Slug als String zurück, kein Objekt. Inhalte danach per
+  `PATCH /api/recipes/{slug}` nachziehen. Beispiel siehe
+  `seed-testrecipes.sh`.
+- `recipeCategory` und `tags` brauchen **vollständige Objekte** mit
+  `id`, `name` und `slug`. Nur `{"name": ...}` → HTTP 422.
+  → IDs in n8n als feste Werte hinterlegen, Liste in SCHEMA.md.
+- Umlaute im Slug fallen weg, sie werden **nicht** transliteriert:
+  `Frühstück` → `fruhstuck`, `Ofen-Gemüse` → `ofen-gemuse`.
+- `extras` akzeptiert beliebige Schlüssel ohne Validierung. Die
+  Disziplin muss vom Workflow kommen, nicht von Mealie.
+- Leere `extras`-Werte werden als Leerstring gespeichert, nicht als
+  NULL → beim Lesen `nullif(value, '')`.
+- Zutaten aus `{"note": "250 g rote Linsen"}` bleiben unstrukturiert:
+  `quantity`, `unit` und `food` sind `null`, keine Verknüpfung zu den
+  2603 Stammdaten-Lebensmitteln. Für die Einkaufsliste (Phase 6) ist
+  die Verknüpfung nötig — Mealies Parser-Endpunkt bei Phase 3 klären.
+- `recipeYield` ist Freitext; `recipeServings` und `recipeYieldQuantity`
+  sind separate numerische Felder, die nicht automatisch daraus befüllt
+  werden. Bei Phase 6 prüfen, ob `recipeServings` `portion_base` ersetzt.
+- `extras` kommt in `GET /api/recipes` (Liste) **nicht** mit, nur im
+  Einzelabruf `GET /api/recipes/{slug}`. Kategorien und Tags dagegen
+  schon.
+- `queryFilter` greift nicht in `extras` (HTTP 400), `loadFood=true`
+  ändert nichts. → Phase 4 liest `extras` direkt aus Postgres,
+  Tabelle `api_extras`, Join über **`e.recipee_id = r.id`** (zwei „e",
+  Tippfehler im Mealie-Schema), mit dem Read-Only-Nutzer `mise_reader`.
+  Geschrieben wird weiterhin ausschließlich über die API.
+- Ohne SMTP verschickt Mealie nichts — die E-Mail eines Nutzers ist nur
+  Login-Bezeichner. Nutzer werden direkt mit Passwort angelegt.
+
+---
+
 ## Phase 0 – Infrastruktur vorbereiten
 
 - [x] Docker & Docker Compose eingerichtet
@@ -59,17 +77,20 @@ Siehe README für die `docker network create`-Befehle.
 - [x] Öffentliches Repo `mise` angelegt
 - [x] `.gitignore` + `.env.example` vor erstem Commit erstellt
 - [x] Erster Commit + Push erfolgreich
+- [x] Netze `edge` / `mise_data` aus den Stacks gelöst (`external: true`)
+- [x] Port-Mapping `5678:5678` bei n8n entfernt
+- [x] Caddy auf `2-alpine` gepinnt, Resolver `127.0.0.11` im Caddyfile
 
 ## Phase 1 – Mealie aufsetzen & Datenmodell definieren
 
 - [x] Mealie deployen (Docker, hinter Caddy)
-- [x] Admin-Account + bot anlegen
+- [x] Admin-Account anlegen (Setup-Wizard)
+- [x] Bot-Nutzer anlegen (nicht-Admin, nur `canOrganize`)
 - [x] API-Token erzeugen und testen
-- [ ] `extras`-Schema festlegen (rating_10, status, cook_count, last_cooked, season_tags, main_ingredient, portion_base)
+- [x] `extras`-Schema festlegen → [SCHEMA.md](SCHEMA.md)
 - [x] Tags/Kategorien anlegen
-- [ ] 3–5 Testrezepte anlegen (teils `neu`, teils `keeper`)
-- [ ]`netfilter-persistent` speichert bei `save` auch Dockers dynamische Regeln mit ein. Führte zu verwaisten DROP-Regeln für gelöschte Bridges. Klären, ob es neben der OCI-Security-List gebraucht wird.
-- [ ]Account der zweiten Person bewusst noch nicht angelegt.
+- [x] Read-Only-Nutzer `mise_reader` für n8n-Lesezugriffe
+- [x] 5 Testrezepte anlegen (`seed-testrecipes.sh`)
 
 ## Phase 2 – Telegram-Bot & Steuerung
 
@@ -77,7 +98,8 @@ Siehe README für die `docker network create`-Befehle.
 - [ ] Chat-IDs ermitteln
 - [ ] Telegram-Trigger in n8n einrichten
 - [ ] Command-Router: `/start`, `/pause`, `/resume`, `/status`
-- [ ] `bot_state`-Tabelle in Postgres anlegen
+- [ ] `bot_state`-Tabelle in DB `einkauf` anlegen
+- [ ] n8n-Credentials: schreibend auf `einkauf`, lesend auf `mealie`
 - [ ] Nur eigene Chat-IDs zulassen
 
 ## Phase 3 – Rezept-Import per Link (TikTok/Instagram/Web)
@@ -86,17 +108,22 @@ Siehe README für die `docker network create`-Befehle.
 - [ ] Mealie-URL-Import für klassische Rezeptseiten
 - [ ] Caption-Abruf für TikTok/Instagram
 - [ ] LLM-Extraktion (Nemotron 3 Super, JSON-Schema via `response_format`)
+- [ ] `main_ingredient`-Vokabular aus SCHEMA.md in den Prompt übernehmen
 - [ ] Einheiten-Umrechnung in metrisch/deutsch im Prompt
-- [ ] Rezept in Mealie anlegen (`status=neu`, `extras` befüllt)
+- [ ] Mealies Zutaten-Parser klären (Verknüpfung zu Stammdaten)
+- [ ] Rezept in Mealie anlegen (`status=neu`, `extras` befüllt,
+      Kategorie `Abendessen`)
 - [ ] Bestätigung + Link zurück an Telegram
 
 ## Phase 4 – Wochenlauf: Auswahl-Logik
 
 - [ ] Schedule-Trigger Montag 7:00
 - [ ] Pause-Check als erster Schritt
-- [ ] Rezepte aus Mealie laden
-- [ ] Pools bilden (`keeper` / `neu`)
+- [ ] Rezepte laden: SQL über `mise_reader` (Abfrage in SCHEMA.md)
+- [ ] Nur Kategorie `Abendessen` berücksichtigen
+- [ ] Pools bilden (`keeper` / `neu`), `archiviert` ausschließen
 - [ ] Filter: Wiederholung, Saison, Diversität, Reste
+- [ ] Fleisch-Quote (Ziel: zunehmend vegetarisch/vegan)
 - [ ] Mischung ziehen (bis 5 `keeper` + auffüllen mit `neu`)
 - [ ] Ergebnis in `weekly_run` speichern
 
@@ -111,7 +138,7 @@ Siehe README für die `docker network create`-Befehle.
 ## Phase 6 – Einkaufsliste generieren
 
 - [ ] Zutaten der gewählten Rezepte sammeln
-- [ ] Auf 2 Personen skalieren
+- [ ] Auf 2 Personen skalieren (`portion_base` als Ausgangswert)
 - [ ] Einheiten normalisieren/umrechnen
 - [ ] Deduplizieren & zusammenfassen
 - [ ] In Mealie-Einkaufsliste schreiben
@@ -143,7 +170,22 @@ Siehe README für die `docker network create`-Befehle.
 
 ## Offene Detailpunkte
 
-- Genaue Mealie-Feldnamen/Endpunkte: bei Phase 1 klären
+- **Backup-Skript** für `mise_postgres-data` und `mise_mealie-data`
+  (siehe Phase 9).
+- **`netfilter-persistent`** speichert bei `save` auch Dockers
+  dynamische Regeln mit ein. Führte zu verwaisten DROP-Regeln für
+  gelöschte Bridges (`-A PREROUTING -d <ip> ! -i br-<alt> -j DROP`) und
+  damit zu stundenlanger Fehlersuche. Klären, ob es neben der
+  OCI-Security-List überhaupt gebraucht wird.
+- **`n8n_default`** wird weiterhin vom n8n-Stack erzeugt; Caddy hängt
+  seit dem Umbau nicht mehr darin. Nur noch Kosmetik.
+- **Account der zweiten Person** bewusst noch nicht angelegt — soll erst
+  vom fertigen Projekt erfahren. Anlegen: `Home` / `Family`, alle
+  Berechtigungen aus.
 - Wiederholungsfenster (Wochen bis erneuter Vorschlag): bei Phase 4 festlegen
 - „Fertig"-Logik der Auswahl (fixe 5 vs. flexibel): bei Phase 5 entscheiden
 - Whisper-Anbieter: erst bei Phase 9 relevant
+- **`postgres/init/`** legt `mealie` und `einkauf` an, aber nicht
+  `mise_reader`. Bei einem Neuaufsetzen fehlt der Nutzer und Phase 4
+  scheitert ohne erkennbaren Grund. Entweder im Init-Skript ergänzen
+  oder im README als manuellen Schritt dokumentieren.
