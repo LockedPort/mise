@@ -4,6 +4,26 @@ Automated weekly meal planning & grocery list generator — n8n + Mealie + Teleg
 
 > Checkboxen unten sind auf GitHub direkt anklickbar (im Repo, nicht nur in Issues). Ein Klick committet die Änderung automatisch.
 
+## API-Erkenntnisse (Phase 1)
+
+- Rezept anlegen: `POST /api/recipes` mit `{"name": "..."}` gibt nur den
+  Slug als String zurück, kein Objekt. Inhalte danach per `PATCH
+  /api/recipes/{slug}` nachziehen.
+- `recipeCategory` und `tags` brauchen **vollständige Objekte** mit
+  `id`, `name` und `slug`. Nur `{"name": ...}` → HTTP 422.
+  → IDs von Kategorien und Tags in n8n als feste Werte hinterlegen,
+  statt sie bei jedem Lauf aufzulösen.
+- Umlaute im Slug: `Frühstück` → `fruhstuck` (ue wird zu u).
+- `extras` akzeptiert beliebige Schlüssel ohne Validierung.
+- Zutaten aus `{"note": "250 g rote Linsen"}` bleiben unstrukturiert:
+  `quantity`, `unit` und `food` sind `null`. Für die Einkaufsliste
+  (Phase 6) ist eine Verknüpfung zu den Stammdaten nötig — Mealies
+  Parser-Endpunkt bei Phase 3 klären.
+- `recipeYield` ist Freitext; `recipeServings` und `recipeYieldQuantity`
+  sind separate numerische Felder, die nicht automatisch daraus
+  befüllt werden. Bei Phase 6 prüfen, ob `recipeServings` statt
+  `portion_base` genügt.
+
 ## Überblick
 
 Jeden Montagmorgen schickt ein Telegram-Bot 10 Rezeptvorschläge (Mischung aus bewährten und neuen), ihr wählt per Button ~5 aus, daraus entsteht automatisch eine auf 2 Personen skalierte Einkaufsliste in deutschen/metrischen Einheiten. Kochanleitungen liegen in Mealie. Sonntags fragt der Bot nach einer Bewertung (1–10), die steuert, was künftig wieder vorgeschlagen wird. Der Bot lässt sich pausieren.
@@ -12,11 +32,14 @@ Jeden Montagmorgen schickt ein Telegram-Bot 10 Rezeptvorschläge (Mischung aus b
 
 **Stack:** n8n · Mealie · PostgreSQL · Telegram Bot API · NVIDIA Nemotron 3 Super (OpenRouter) · Caddy · Oracle Cloud VPS
 
-**Deployment:** Drei getrennte Compose-Stacks auf dem VPS —
-`~/proxy` (Caddy, besitzt 80/443), `~/n8n` (bestehende n8n-Instanz),
-`~/mise` (Postgres + Mealie). Verbunden über zwei externe Docker-Netze:
-`mise_proxy` (Caddy → Mealie) und `mise_data` (n8n → Postgres, `internal`).
-Die mise-Workflows laufen in der bestehenden n8n-Instanz.
+**Deployment:** Drei getrennte Compose-Stacks auf dem VPS — `~/proxy`
+(Caddy, besitzt 80/443), `~/n8n` (bestehende n8n-Instanz), `~/mise`
+(Postgres + Mealie). Verbunden über zwei Docker-Netze, die **keinem
+Stack gehören** und manuell angelegt werden: `edge` (Caddy ↔ n8n,
+Caddy ↔ Mealie, zugleich Mealies einziger Weg ins Internet) und
+`mise_data` (`internal`, Postgres ↔ Mealie ↔ n8n). Alle drei
+Compose-Dateien referenzieren sie als `external: true`.
+Siehe README für die `docker network create`-Befehle.
 
 **🔐 Sicherheitsregel:** Repo ist öffentlich. Keine Zugangsdaten/Tokens/Passwörter in getrackten Dateien — alles in `.env` (per `.gitignore` ausgeschlossen), nur `.env.example` mit Platzhaltern wird versioniert. Vor jedem `git add`: `git status` prüfen.
 
@@ -40,11 +63,13 @@ Die mise-Workflows laufen in der bestehenden n8n-Instanz.
 ## Phase 1 – Mealie aufsetzen & Datenmodell definieren
 
 - [x] Mealie deployen (Docker, hinter Caddy)
-- [ ] Admin-Account + beide Nutzer anlegen
-- [ ] API-Token erzeugen und testen
+- [x] Admin-Account + bot anlegen
+- [x] API-Token erzeugen und testen
 - [ ] `extras`-Schema festlegen (rating_10, status, cook_count, last_cooked, season_tags, main_ingredient, portion_base)
-- [ ] Tags/Kategorien anlegen
+- [x] Tags/Kategorien anlegen
 - [ ] 3–5 Testrezepte anlegen (teils `neu`, teils `keeper`)
+- [ ]`netfilter-persistent` speichert bei `save` auch Dockers dynamische Regeln mit ein. Führte zu verwaisten DROP-Regeln für gelöschte Bridges. Klären, ob es neben der OCI-Security-List gebraucht wird.
+- [ ]Account der zweiten Person bewusst noch nicht angelegt.
 
 ## Phase 2 – Telegram-Bot & Steuerung
 
