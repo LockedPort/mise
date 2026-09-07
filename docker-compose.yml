@@ -44,7 +44,7 @@ services:
       - mealie-data:/app/data
     networks:
       - data
-      - proxy
+      - edge
 
 volumes:
   postgres-data:
@@ -53,6 +53,7 @@ volumes:
 networks:
   data:
     name: mise_data
-    internal: true
-  proxy:
-    name: mise_proxy
+    external: true
+  edge:
+    name: edge
+    external: true
