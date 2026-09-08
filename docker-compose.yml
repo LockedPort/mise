@@ -9,6 +9,7 @@ services:
       POSTGRES_DB: postgres
       MEALIE_DB_PASSWORD: ${MEALIE_DB_PASSWORD}
       EINKAUF_DB_PASSWORD: ${EINKAUF_DB_PASSWORD}
+      MISE_READER_PASSWORD: ${MISE_READER_PASSWORD}
       TZ: ${TZ}
     volumes:
       - postgres-data:/var/lib/postgresql/data

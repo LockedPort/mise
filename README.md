@@ -100,6 +100,57 @@ certificates automatically on first request.
 - No SMTP configured, so invites and password resets are unavailable.
   Create users directly with a password.
 
+## n8n
+
+n8n runs in a separate stack and does **not** read this repo's `.env`.
+Secrets are therefore split, deliberately:
+
+| Secret | Lives in |
+|---|---|
+| DB passwords | `.env`, passed to the Postgres container |
+| Telegram bot token | n8n's own credential store (encrypted) |
+| Allowed chat IDs | hardcoded in the `Allowlist` code node |
+
+The `.env` entries for the Telegram values remain useful for `curl`
+tests and as documentation, but they are not the source of truth for
+n8n. Changing them there has no effect on the running bot.
+
+Credentials, both pointing at host `mise-postgres`, port 5432, SSL
+disabled:
+
+| Name | Database | User |
+|---|---|---|
+| `mise einkauf (rw)` | `einkauf` | `einkauf` |
+| `mise mealie (ro)` | `mealie` | `mise_reader` |
+
+SSL is off on purpose: traffic never leaves the internal `mise_data`
+network, and the server has no TLS configured — `Require` would simply
+fail.
+
+`bot_state` lives in `einkauf`, so even read-only queries against it use
+the **rw** credential. `mise_reader` has no `CONNECT` on that database.
+
+**The host is a container name, and that couples this stack to n8n's
+credentials.** It works because `docker-compose.yml` sets
+`container_name: mise-postgres` explicitly. Drop that line and Compose
+names the container `mise-postgres-1`; n8n then fails to resolve it,
+without anything in the n8n stack having changed.
+
+Also required in the n8n stack: `WEBHOOK_URL=https://n8n.<domain>/`.
+
+### Troubleshooting
+
+The n8n image is minimal — no `getent`, no `psql`. Test connectivity
+from inside it with Node instead:
+
+```bash
+docker exec n8n-n8n-1 node -e "require('net').connect(5432,'mise-postgres').on('connect',()=>{console.log('port open');process.exit(0)}).on('error',e=>{console.log(e.message);process.exit(1)})"
+```
+
+If the bot goes silent, check the `Allowlist` node first: it drops
+unknown senders without replying, so a misconfiguration looks exactly
+like a stranger being blocked.
+
 ## Security
 
 - Public repo. No credentials in tracked files — everything lives in

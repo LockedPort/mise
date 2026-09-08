@@ -101,6 +101,75 @@ Tags:
 Gruppe `Home`: `9194a7bf-5fe1-4e31-ba7c-682c4050118a`
 Haushalt `Family`: `6a60fec9-369f-4a49-be17-0f474f6bc2db`
 
+## bot_state (DB `einkauf`)
+
+Genau eine Zeile, per Constraint erzwungen. Angelegt von
+`postgres/init/02-bot-state.sh`, Eigentümer `einkauf`.
+
+| Spalte | Typ | Bedeutung |
+|---|---|---|
+| `id` | `smallint` | immer `1`, `check (id = 1)` |
+| `paused` | `boolean` | Vorschläge und Nachfragen setzen aus |
+| `paused_until` | `date` | `NULL` = unbefristet (Phase 9: `/pause 3w`) |
+| `updated_at` | `timestamptz` | wird **nicht** automatisch gesetzt |
+
+`check (id = 1)` verhindert einen zweiten Zustand. Ohne ihn ginge ein
+doppelter INSERT lautlos durch und der Pause-Check läse je nach
+Sortierung mal das eine, mal das andere.
+
+`updated_at` bewusst ohne Trigger — n8n schreibt es bei `/pause` und
+`/resume` explizit mit. Ein Trigger wäre verstecktes Verhalten für ein
+Feld, das nur an zwei Stellen angefasst wird.
+
+Pause-Check für Phase 4 und 7 — deckt `paused_until` schon ab:
+
+```sql
+select paused and (paused_until is null or paused_until > current_date)
+       as is_paused
+from bot_state where id = 1;
+```
+
+Rückmeldung mit vorherigem Zustand, ohne zweiten Node — die Subquery
+läuft gegen den Snapshot vor dem Update:
+
+```sql
+update bot_state
+   set paused = true, paused_until = null, updated_at = now()
+ where id = 1
+returning (select paused from bot_state where id = 1) as was_paused;
+```
+
+## Telegram-Normalisierung (n8n)
+
+Der Code-Node `Normalize` flacht `message` und `callback_query` auf ein
+gemeinsames Format ab. Alle nachfolgenden Nodes greifen nur darauf zu.
+
+| Feld | Inhalt |
+|---|---|
+| `kind` | `command` \| `callback` \| `text` |
+| `chat_id` | Ziel für Antworten |
+| `user_id` | Absender — **hierauf** filtert die Allowlist |
+| `command` | `/pause`, Botname abgeschnitten, klein; sonst `null` |
+| `args` | Rest der Zeile (Phase 9: `/pause 3w`) |
+| `text` | Rohtext (Phase 3: Rezept-Links) |
+| `data` | Callback-Payload der Inline-Buttons |
+| `cb_id` | für `answerCallbackQuery` (Phase 5/7) |
+
+Gefiltert wird auf `user_id`, nicht `chat_id`: in Gruppen wäre
+`chat_id` die Gruppe, `user_id` immer die Person.
+
+Jeder Button-Klick braucht ein `answerCallbackQuery` — bleibt es aus,
+dreht beim Nutzer eine Ladeanimation bis zum Timeout. Dafür `cb_id`.
+
+**Der Node-Name `Normalize` ist Vertrag.** Nodes hinter einem
+Postgres-Node holen die Chat-ID über
+`{{ $('Normalize').item.json.chat_id }}`, weil Postgres nur seine eigene
+Ausgabe weiterreicht. Umbenennen bricht alle diese Ausdrücke.
+
+Der Router hat einen Fallback-Ausgang für alles Unbekannte. **Dort
+hängt sich Phase 3 (Rezept-Links) ein** — der Router muss dafür nicht
+umgebaut werden.
+
 ## extras aus Postgres lesen
 
 `extras` kommt in der Rezept-Liste der API **nicht** mit, und

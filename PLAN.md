@@ -60,6 +60,33 @@ Siehe README für die `docker network create`-Befehle.
   Geschrieben wird weiterhin ausschließlich über die API.
 - Ohne SMTP verschickt Mealie nichts — die E-Mail eines Nutzers ist nur
   Login-Bezeichner. Nutzer werden direkt mit Passwort angelegt.
+### Telegram (Phase 2)
+- `getUpdates` und Webhook schließen sich aus. Sobald n8n den Trigger
+  aktiviert, liefert `getUpdates` nur noch HTTP 409. Chat-IDs deshalb
+  **vor** dem ersten Trigger-Start ermitteln.
+- n8n hat zwei Webhook-URLs: Test-URL (nur während „Listen for test
+  event") und Produktiv-URL (nur bei aktivem Workflow). Ein offener
+  Editor-Tab im Lauschmodus legt die Produktivversion still.
+- Voraussetzung im n8n-Stack: `WEBHOOK_URL=https://n8n.timkibele.com/`.
+  Ohne das baut n8n die Webhook-Adresse aus `localhost:5678` und
+  Telegram erreicht sie nicht. Externe Abhängigkeit — n8n ist ein
+  eigener Stack.
+- Trigger nur auf `message` und `callback_query` stellen, nicht `*`.
+- BotFather: jede Stufe eine eigene Nachricht. Bot-Auswahl mit
+  `@username`; der Anzeigename wird nie erkannt, Befehl und Argument
+  in einer Zeile ebenso wenig.
+### Postgres-Init (Phase 2)
+- `/docker-entrypoint-initdb.d` führt `.sql`-Dateien **immer** gegen
+  `POSTGRES_DB` aus (hier `postgres`). Nur `.sh` kann per `--dbname`
+  die Datenbank wählen. Tabellen in `einkauf` deshalb als `.sh`.
+- Im Skript `SET ROLE einkauf` vor dem `CREATE TABLE`, sonst gehört die
+  Tabelle `postgres` und der n8n-Nutzer darf nicht schreiben.
+- Das Init-Verzeichnis läuft nur bei leerem Volume. Bei laufender
+  Instanz dieselbe Datei manuell einspielen — das testet sie gleich mit:
+  `docker exec -i mise-postgres bash /dev/stdin < postgres/init/xx.sh`
+- `timestamptz` kommt in n8n als UTC an. Bei Ausgabe an Telegram
+  explizit `toLocaleString('de-DE', {timeZone:'Europe/Berlin'})`,
+  sonst zwei Stunden daneben.
 
 ---
 
@@ -185,7 +212,13 @@ Siehe README für die `docker network create`-Befehle.
 - Wiederholungsfenster (Wochen bis erneuter Vorschlag): bei Phase 4 festlegen
 - „Fertig"-Logik der Auswahl (fixe 5 vs. flexibel): bei Phase 5 entscheiden
 - Whisper-Anbieter: erst bei Phase 9 relevant
-- **`postgres/init/`** legt `mealie` und `einkauf` an, aber nicht
-  `mise_reader`. Bei einem Neuaufsetzen fehlt der Nutzer und Phase 4
-  scheitert ohne erkennbaren Grund. Entweder im Init-Skript ergänzen
-  oder im README als manuellen Schritt dokumentieren.
+- **`postgres/init/03-mise-reader.sh`** legt den Nutzer jetzt an, samt
+  `ALTER DEFAULT PRIVILEGES` (Mealie legt bei Updates neue Tabellen an).
+  Der `CREATE USER`-Teil wurde nie ausgeführt — der Nutzer existierte
+  bereits. Bewiesen ist er erst beim nächsten Neuaufsetzen.
+- **`can_join_groups` steht noch auf `true`.** Nachholen bei BotFather:
+  `/setjoingroups` → `@mise_maus_bot` → `Disable`, je eigene Nachricht.
+- **n8n-Attribution** in allen Telegram-Nodes unter Options abschalten
+  („Append n8n Attribution"). Ab Phase 5 sonst unter jedem
+  Vorschlagsblock.
+- **`/start`-Text** hat die Zeilenumbrüche verloren.
